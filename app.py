@@ -1,93 +1,50 @@
 import streamlit as st
-import docx
-import fitz  # PyMuPDF
-from fpdf import FPDF
-from deep_translator import GoogleTranslator
-import io
-import time
+import deepl
+import os
+
+API_KEY = "328293ea-f93c-4a68-9482-f254363a7a1e:fx"
 
 st.set_page_config(page_title="Traducteur Scolaire", page_icon="🏫")
 st.title("🌐 Traducteur de Cours & Examens")
-st.write("Formats acceptés : Word (.docx) avec conservation de la mise en page, et PDF (.pdf)")
+st.write("Formats acceptés : Word (.docx, .pptx) et PDF (.pdf) avec conservation de la mise en page.")
 
-langues_cibles = {"Allemand": "de", "Anglais": "en", "Arabe": "ar", "Espagnol": "es"}
+langues_cibles = {
+    "Allemand": "DE",
+    "Anglais": "EN-US",
+    "Arabe": "AR",
+    "Espagnol": "ES"
+}
 langue_choisie = st.selectbox("Langue de destination :", list(langues_cibles.keys()))
 
-fichier_upload = st.file_uploader("Uploadez votre fichier", type=["docx", "pdf"])
+fichier_upload = st.file_uploader("Uploadez votre fichier", type=["docx", "pptx", "pdf"])
 
 if st.button("Traduire le document") and fichier_upload is not None:
-    extension = fichier_upload.name.split('.')[-1].lower()
-    traducteur = GoogleTranslator(source='auto', target=langues_cibles[langue_choisie])
-    erreur_affichee = False
+    translator = deepl.Translator(API_KEY)
     
-    with st.spinner(f'Traduction en {langue_choisie} en cours... (Le processus est ralenti pour éviter les blocages)'):
+    chemin_entree = fichier_upload.name
+    chemin_sortie = f"traduit_{fichier_upload.name}"
+    
+    with open(chemin_entree, "wb") as f: 
+        f.write(fichier_upload.getbuffer())
+    
+    with st.spinner("Traduction en cours..."):
         try:
-            if extension == "docx":
-                doc = docx.Document(fichier_upload)
-                
-                # Traduction des paragraphes
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        try:
-                            para.text = traducteur.translate(para.text)
-                            time.sleep(0.3) # Pause anti-blocage de 0.3 seconde
-                        except Exception as e:
-                            if not erreur_affichee:
-                                st.error(f"Blocage Google Translate : {e}")
-                                erreur_affichee = True
-                
-                # Traduction des tableaux
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            for para in cell.paragraphs:
-                                if para.text.strip():
-                                    try:
-                                        para.text = traducteur.translate(para.text)
-                                        time.sleep(0.3)
-                                    except:
-                                        pass
-
-                doc_io = io.BytesIO()
-                doc.save(doc_io)
-                doc_io.seek(0)
-                
-                st.success("✅ Fichier Word traité !")
-                st.download_button("⬇️ Télécharger le Word", data=doc_io, file_name=f"Traduit_{fichier_upload.name}", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-            elif extension == "pdf":
-                pdf_original = fitz.open(stream=fichier_upload.read(), filetype="pdf")
-                nouveau_pdf = FPDF()
-                nouveau_pdf.set_auto_page_break(auto=True, margin=15)
-                nouveau_pdf.add_page()
-                nouveau_pdf.set_font("Arial", size=12)
-
-                for num_page in range(pdf_original.page_count):
-                    page = pdf_original.load_page(num_page)
-                    texte_page = page.get_text("text")
-                    
-                    if texte_page.strip():
-                        lignes = texte_page.split('\n')
-                        texte_traduit = ""
-                        for ligne in lignes:
-                            if ligne.strip():
-                                try:
-                                    texte_traduit += traducteur.translate(ligne) + "\n"
-                                    time.sleep(0.3)
-                                except Exception as e:
-                                    if not erreur_affichee:
-                                        st.error(f"Blocage Google Translate : {e}")
-                                        erreur_affichee = True
-                                    texte_traduit += ligne + "\n"
-                        
-                        texte_traduit = texte_traduit.encode('latin-1', 'replace').decode('latin-1')
-                        nouveau_pdf.multi_cell(0, 10, txt=texte_traduit)
-                    
-                    nouveau_pdf.add_page()
-
-                pdf_io = io.BytesIO(nouveau_pdf.output(dest='S').encode('latin-1'))
-                st.success("✅ Fichier PDF traité !")
-                st.download_button("⬇️ Télécharger le PDF", data=pdf_io, file_name=f"Traduit_{fichier_upload.name}", mime="application/pdf")
-
+            translator.translate_document_from_filepath(
+                chemin_entree, 
+                chemin_sortie, 
+                target_lang=langues_cibles[langue_choisie]
+            )
+            
+            with open(chemin_sortie, "rb") as f:
+                st.download_button(
+                    label="⬇️ Télécharger le fichier traduit", 
+                    data=f, 
+                    file_name=chemin_sortie
+                )
         except Exception as e:
-            st.error(f"Erreur technique globale : {e}")
+            st.error(f"Erreur de l'API DeepL : {e}")
+        finally:
+            if os.path.exists(chemin_entree):
+                os.remove(chemin_entree)
+            if os.path.exists(chemin_sortie):
+                os.remove(chemin_sortie)
